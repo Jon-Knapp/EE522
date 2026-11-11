@@ -8,11 +8,15 @@ synthetic video of a galloping span together with exact per-frame displacement,
 pixel positions, and alert labels. Those outputs are the test bench for the
 detection, tracking, and alerting algorithms developed in later steps.
 
+Physical defaults and plausibility checks follow EPRI's "Transmission Line
+Reference Book: Wind-Induced Conductor Motion" (the Orange Book); see reference.py.
+
 Module map:
     settings      - load config.py into a validated config object, apply overrides
+    reference     - Orange Book data: conductor presets, wind profile, amplitude envelopes, orbit, blowout
     physics       - catenary sag, modal frequencies, Den Hartog and kinematic gallop dynamics
-    wind          - mean wind schedule plus turbulent gusts
-    scene         - 3D conductors and lattice towers built from the config
+    wind          - mean wind schedule plus turbulent gusts, height profile, line-normal component
+    scene         - 3D conductors (with blowout and ice shedding) and lattice towers built from the config
     camera        - pinhole camera projecting world points to pixels
     render        - procedural sky/ground background and anti-aliased wire drawing
     degrade       - fog, camera shake, rain/snow, blur, exposure flicker, sensor noise
@@ -20,4 +24,4 @@ Module map:
     simulator     - ties everything together and produces a run folder
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

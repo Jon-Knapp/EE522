@@ -14,11 +14,14 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from . import reference
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 VALID_MODELS = ("den_hartog", "kinematic")
 VALID_WEATHER = ("none", "rain", "snow")
 VALID_SKY = ("clear", "overcast")
+VALID_CALIBRATIONS = ("hunt_richards", "target")
 
 
 def load_config(overrides=None):
@@ -58,10 +61,22 @@ def validate_config(cfg):
         raise ValueError("KINEMATIC_AMPLITUDES_M must have one entry per MODE_NUMBERS entry")
     if cfg.MOTION_MODEL not in VALID_MODELS:
         raise ValueError(f"MOTION_MODEL must be one of {VALID_MODELS}")
+    if cfg.AMPLITUDE_CALIBRATION not in VALID_CALIBRATIONS:
+        raise ValueError(f"AMPLITUDE_CALIBRATION must be one of {VALID_CALIBRATIONS}")
     if cfg.WEATHER not in VALID_WEATHER:
         raise ValueError(f"WEATHER must be one of {VALID_WEATHER}")
     if cfg.SKY_STYLE not in VALID_SKY:
         raise ValueError(f"SKY_STYLE must be one of {VALID_SKY}")
+    if cfg.TERRAIN_CATEGORY not in reference.TERRAIN_CATEGORIES:
+        raise ValueError(f"TERRAIN_CATEGORY must be one of {sorted(reference.TERRAIN_CATEGORIES)}")
+    if cfg.CONDUCTOR_PRESET is not None and cfg.CONDUCTOR_PRESET not in reference.CONDUCTOR_PRESETS:
+        raise ValueError(f"CONDUCTOR_PRESET must be None or one of {sorted(reference.CONDUCTOR_PRESETS)}")
+    if not 0.0 <= cfg.ORBIT_STATIC_QUANTILE <= 0.5:
+        raise ValueError("ORBIT_STATIC_QUANTILE must be between 0 and 0.5")
+    if not 0.0 <= cfg.ORBIT_WIDTH_RATIO < 1.0:
+        raise ValueError("ORBIT_WIDTH_RATIO must be in [0, 1)")
+    if cfg.ICE_THICKNESS_M < 0:
+        raise ValueError("ICE_THICKNESS_M must not be negative")
     if cfg.DURATION_S <= 0 or cfg.FPS <= 0:
         raise ValueError("DURATION_S and FPS must be positive")
     if cfg.ALERT_CLEAR_M > cfg.ALERT_THRESHOLD_M:
@@ -75,10 +90,17 @@ def validate_config(cfg):
         for key in ("name", "attach_y_m", "attach_z_m"):
             if key not in spec:
                 raise ValueError(f"Conductor entry {spec} is missing '{key}'")
+        if "preset" in spec and spec["preset"] not in reference.CONDUCTOR_PRESETS:
+            raise ValueError(f"Conductor '{spec['name']}' has unknown preset '{spec['preset']}'")
     for label, schedule in (("WIND_SCHEDULE", cfg.WIND_SCHEDULE), ("KINEMATIC_ENVELOPE", cfg.KINEMATIC_ENVELOPE)):
         times = [p[0] for p in schedule]
         if not schedule or times != sorted(times):
             raise ValueError(f"{label} must be a non-empty list of (time, value) pairs in time order")
+    for event in cfg.ICE_SHED_EVENTS:
+        if len(event) != 2 or event[1] not in names:
+            raise ValueError(f"ICE_SHED_EVENTS entry {event} must be (time_s, conductor_name) with a known name")
+    if cfg.ICE_SHED_EVENTS and cfg.MOTION_MODEL != "den_hartog":
+        raise ValueError("ICE_SHED_EVENTS needs MOTION_MODEL = 'den_hartog'")
     if not 0.0 <= cfg.FOG_DENSITY <= 1.0:
         raise ValueError("FOG_DENSITY must be between 0 and 1")
 

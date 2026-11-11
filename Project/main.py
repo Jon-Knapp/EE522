@@ -4,13 +4,15 @@ main.py - Command-line entry point for the conductor-gallop synthetic video gene
 Loads config.py, applies any command-line overrides, prints a physics summary, and
 renders a run (video + ground truth + alert labels + metadata) with
 gallop_sim.simulator.GallopSimulator. Use --summary-only to check modal
-frequencies, critical wind speeds, and predicted amplitudes without rendering.
+frequencies, critical wind speeds, predicted amplitudes, and the Orange Book
+plausibility notes without rendering.
 
 Examples:
     python main.py
     python main.py --duration 30 --name quick_test
     python main.py --model kinematic --weather rain --fog 0.3
     python main.py --summary-only
+    python main.py --shed 95:phase_C --terrain 2
 """
 
 import argparse
@@ -18,6 +20,14 @@ import sys
 
 from gallop_sim.settings import load_config
 from gallop_sim.simulator import GallopSimulator
+
+
+def parse_shed(text):
+    """Parse a --shed value 'TIME:CONDUCTOR' into a (float, str) pair for ICE_SHED_EVENTS."""
+    time_text, _, name = text.partition(":")
+    if not name:
+        raise argparse.ArgumentTypeError("use TIME:CONDUCTOR, e.g. 95:phase_C")
+    return float(time_text), name
 
 
 def parse_args(argv=None):
@@ -32,6 +42,10 @@ def parse_args(argv=None):
     parser.add_argument("--fog", type=float, help="fog density 0-1 (FOG_DENSITY)")
     parser.add_argument("--noise", type=float, help="sensor noise std, 0-255 scale (SENSOR_NOISE_STD)")
     parser.add_argument("--no-shake", action="store_true", help="disable camera shake")
+    parser.add_argument("--no-blowout", action="store_true", help="disable wind blowout (swing) of the spans")
+    parser.add_argument("--terrain", type=int, choices=[1, 2, 3, 4], help="terrain category (TERRAIN_CATEGORY)")
+    parser.add_argument("--shed", type=parse_shed, action="append",
+                        help="ice-shedding event TIME:CONDUCTOR (repeatable; ICE_SHED_EVENTS)")
     parser.add_argument("--threshold", type=float, help="alert threshold in metres (ALERT_THRESHOLD_M)")
     parser.add_argument("--background", help="background photo to use instead of the procedural sky")
     parser.add_argument("--clean-video", action="store_true", help="also save an undegraded video")
@@ -47,10 +61,12 @@ def overrides_from_args(args):
     mapping = {"duration": "DURATION_S", "fps": "FPS", "seed": "RANDOM_SEED", "model": "MOTION_MODEL",
                "weather": "WEATHER", "sky": "SKY_STYLE", "fog": "FOG_DENSITY", "noise": "SENSOR_NOISE_STD",
                "threshold": "ALERT_THRESHOLD_M", "background": "BACKGROUND_IMAGE", "name": "RUN_NAME",
-               "output_dir": "OUTPUT_DIR"}
+               "output_dir": "OUTPUT_DIR", "terrain": "TERRAIN_CATEGORY", "shed": "ICE_SHED_EVENTS"}
     overrides = {key: getattr(args, arg) for arg, key in mapping.items() if getattr(args, arg) is not None}
     if args.no_shake:
         overrides["SHAKE_ENABLED"] = False
+    if args.no_blowout:
+        overrides["BLOWOUT_ENABLED"] = False
     if args.clean_video:
         overrides["SAVE_CLEAN_VIDEO"] = True
     if args.preview:

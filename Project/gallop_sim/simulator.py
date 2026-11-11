@@ -3,11 +3,13 @@ simulator.py - Orchestrates a complete synthetic gallop run.
 
 GallopSimulator wires the other modules together: it builds the conductors,
 camera, wind, renderer, and degrader from the config, then for every video frame
-advances the wind and gallop dynamics, renders and degrades the image, writes it
-to video, and logs ground truth and alert labels. It also produces a physics
-summary (modal frequencies, sag, critical wind speeds, predicted amplitudes) so
-settings can be sanity-checked before committing to a long render. main.py is the
-command-line front end for this class.
+advances the wind, each conductor's blowout and gallop dynamics, applies any
+scheduled ice shedding, renders and degrades the image, writes it to video, and
+logs ground truth and alert labels. It also produces a physics summary (modal
+frequencies, sag, critical wind speeds, predicted amplitudes, blowout, and
+plausibility notes against Orange Book field data) so settings can be
+sanity-checked before committing to a long render. main.py is the command-line
+front end for this class.
 """
 
 import datetime
@@ -18,13 +20,13 @@ import time
 import cv2
 import numpy as np
 
-from . import __version__, physics
+from . import __version__, physics, reference
 from .camera import PinholeCamera
 from .degrade import Degrader, transform_points
 from .ground_truth import (AlertTracker, GroundTruthWriter, fraction_label, write_events_csv,
                            write_metadata)
 from .render import SceneRenderer
-from .scene import build_conductors
+from .scene import build_conductors, settle_wind
 from .settings import config_to_dict, resolve_output_dir
 from .wind import WindModel
 
@@ -39,53 +41,93 @@ class GallopSimulator:
         rng_physics, rng_wind, rng_render, rng_degrade, _ = (np.random.default_rng(s) for s in seeds)
         self.camera = PinholeCamera.from_config(cfg)
         self.conductors = build_conductors(cfg, rng_physics)
-        self.wind = WindModel(cfg.WIND_SCHEDULE, cfg.WIND_GUST_STD_MS, cfg.WIND_GUST_TIMESCALE_S, rng_wind)
+        self.wind = WindModel(cfg.WIND_SCHEDULE, cfg.WIND_GUST_STD_MS, cfg.WIND_GUST_TIMESCALE_S, rng_wind,
+                              cfg.TERRAIN_CATEGORY, cfg.WIND_ANGLE_DEG)
+        settle_wind(self.conductors, self.wind.current, cfg)
         self.renderer = SceneRenderer(cfg, self.camera, self.conductors, rng_render)
         self.degrader = Degrader(cfg, rng_degrade)
+        self.pending_ice_sheds = sorted((float(t), name) for t, name in cfg.ICE_SHED_EVENTS)
+        self.initial_summary = self.physics_summary()   # saved to metadata (ice shedding changes the physics later)
 
     # ------------------------------------------------------------------ summary
     def physics_summary(self):
-        """Return a list of per-conductor dicts with frequencies, sag, critical winds, and predicted amplitudes."""
+        """Return a list of per-conductor dicts with frequencies, sag, winds, amplitudes, blowout, and book notes."""
         cfg = self.cfg
         summary = []
         peak_wind = self.wind.max_mean_speed()
+        width_ratio, tilt_deg = reference.orbit_from_sway(self.conductors[0].sway_ratio,
+                                                          math.degrees(self.conductors[0].sway_phase_rad))
         for c in self.conductors:
             entry = {
-                "name": c.name, "sag_m": c.sag_m, "frequencies_hz": c.frequencies_hz,
-                "mode_numbers": list(c.mode_numbers), "aero_diameter_m": c.aero_diameter_m,
-                "tension_n": c.tension_n, "mass_per_m": c.mass_per_m, "a1": c.a1, "a3": c.a3,
+                "name": c.name, "sag_m": c.sag_m, "sag_ratio": c.sag_m / c.span_m,
+                "frequencies_hz": c.frequencies_hz, "mode_numbers": list(c.mode_numbers),
+                "diameter_m": c.diameter_m, "aero_diameter_m": c.aero_diameter_m,
+                "tension_n": c.tension_n, "tension_pct_rts": 100.0 * c.tension_n / c.rated_strength_n,
+                "bare_mass_per_m": c.bare_mass_per_m, "mass_per_m": c.mass_per_m,
+                "ice_thickness_m": c.ice_thickness_m, "mean_height_m": c.mean_height_m,
+                "wind_factor": c.wind_factor, "a1": c.a1, "a3": c.a3,
+                "sway_ratio": c.sway_ratio, "sway_phase_deg": math.degrees(c.sway_phase_rad),
+                "orbit_width_ratio": width_ratio, "orbit_tilt_deg": tilt_deg, "upward_bias": c.upward_bias,
+                "blowout_peak_wind_deg": math.degrees(reference.blowout_angle_rad(
+                    peak_wind * c.wind_factor, cfg.AIR_DENSITY_KGM3, cfg.BLOWOUT_DRAG_COEFF,
+                    c.aero_diameter_m, c.mass_per_m * c.gravity)) if cfg.BLOWOUT_ENABLED else 0.0,
+                "envelope_max_pkpk_m": reference.lilien_havard_max_pkpk(c.sag_m, c.diameter_m),
                 "midspan_depth_m": float(self.camera.project(
                     np.array([[c.span_m / 2, c.attach_y_m, c.attach_z_m - c.sag_m]]))[2][0]),
             }
             entry["metres_per_pixel_midspan"] = self.camera.metres_per_pixel(entry["midspan_depth_m"])
+            critical_ref = None
             if cfg.MOTION_MODEL == "den_hartog":
                 args = (c.omegas, c.mass_per_m, cfg.DAMPING_RATIO, cfg.AIR_DENSITY_KGM3, c.aero_diameter_m, c.a1)
-                entry["critical_wind_ms"] = physics.critical_wind_speed(*args)
-                entry["predicted_amplitude_ref_wind_m"] = physics.predicted_amplitude(*args, c.a3, cfg.REFERENCE_WIND_MS)
-                entry["predicted_amplitude_peak_wind_m"] = physics.predicted_amplitude(*args, c.a3, peak_wind)
+                crit = physics.critical_wind_speed(*args)
+                entry["critical_wind_conductor_ms"] = crit
+                entry["critical_wind_ms"] = crit / c.wind_factor          # in 10 m reference-wind terms
+                ref_amp = physics.predicted_amplitude(*args, c.a3, cfg.REFERENCE_WIND_MS * c.wind_factor)
+                peak_amp = physics.predicted_amplitude(*args, c.a3, peak_wind * c.wind_factor)
+                entry["predicted_amplitude_ref_wind_m"] = ref_amp
+                entry["predicted_amplitude_peak_wind_m"] = peak_amp
+                finite = crit[np.isfinite(crit)]
+                critical_ref = float(finite.min() / c.wind_factor) if finite.size else None
+                check_pkpk, check_wind = 2.0 * peak_amp, peak_wind * c.wind_factor
             else:
                 entry["kinematic_amplitudes_m"] = c.dynamics.amplitudes
+                check_pkpk, check_wind = 2.0 * np.abs(c.dynamics.amplitudes), 0.0
+            entry["book_notes"] = reference.book_checks(c.name, c.frequencies_hz, c.sag_m, c.diameter_m,
+                                                        check_pkpk, check_wind, critical_ref)
             summary.append(entry)
         return summary
 
     def format_summary(self):
         """Return the physics summary as readable text for the console."""
         cfg = self.cfg
+        terrain = reference.TERRAIN_CATEGORIES[cfg.TERRAIN_CATEGORY]["name"]
+        summary = self.physics_summary()
         lines = [f"Model: {cfg.MOTION_MODEL} | span {cfg.SPAN_LENGTH_M:.0f} m | modes {list(cfg.MODE_NUMBERS)} | "
-                 f"peak mean wind {self.wind.max_mean_speed():.1f} m/s | alert at {cfg.ALERT_THRESHOLD_M} m"]
-        for e in self.physics_summary():
+                 f"peak mean wind {self.wind.max_mean_speed():.1f} m/s at 10 m ({terrain}) | "
+                 f"alert at {cfg.ALERT_THRESHOLD_M} m",
+                 f"Orbit: width {summary[0]['orbit_width_ratio']:.0%} of height, tilt "
+                 f"{summary[0]['orbit_tilt_deg']:.1f} deg, centre {summary[0]['upward_bias']:.2f} A above rest "
+                 f"(winds below are 10 m reference values)"]
+        notes = []
+        for e in summary:
             freqs = ", ".join(f"{f:.2f}" for f in e["frequencies_hz"])
-            lines.append(f"  {e['name']:<10} sag {e['sag_m']:.2f} m | f_n [{freqs}] Hz | "
-                         f"{e['metres_per_pixel_midspan'] * 100:.1f} cm/px at midspan")
+            lines.append(f"  {e['name']:<10} sag {e['sag_m']:.2f} m ({e['sag_ratio']:.1%}) | "
+                         f"{e['mass_per_m']:.2f} kg/m with ice | T {e['tension_pct_rts']:.0f}% RTS | "
+                         f"f_n [{freqs}] Hz | {e['metres_per_pixel_midspan'] * 100:.1f} cm/px")
             if cfg.MOTION_MODEL == "den_hartog":
                 crit = ", ".join("stable" if not math.isfinite(u) else f"{u:.1f}" for u in e["critical_wind_ms"])
-                ref = ", ".join(f"{a:.2f}" for a in e["predicted_amplitude_ref_wind_m"])
-                peak = ", ".join(f"{a:.2f}" for a in e["predicted_amplitude_peak_wind_m"])
-                lines.append(f"  {'':<10} critical wind [{crit}] m/s | amplitude @ref wind [{ref}] m | "
-                             f"@peak wind [{peak}] m")
+                ref = ", ".join(f"{2 * a:.2f}" for a in e["predicted_amplitude_ref_wind_m"])
+                peak = ", ".join(f"{2 * a:.2f}" for a in e["predicted_amplitude_peak_wind_m"])
+                lines.append(f"  {'':<10} critical wind [{crit}] m/s | pk-pk if alone @ref [{ref}] m, "
+                             f"@peak [{peak}] m | field envelope {e['envelope_max_pkpk_m']:.1f} m | "
+                             f"blowout {e['blowout_peak_wind_deg']:.0f} deg @peak")
             else:
                 amps = ", ".join(f"{a:.2f}" for a in e["kinematic_amplitudes_m"])
                 lines.append(f"  {'':<10} scripted amplitudes [{amps}] m")
+            notes += e["book_notes"]
+        if notes:
+            lines.append("Outside Orange Book field experience (check, not necessarily wrong):")
+            lines += [f"  ! {n}" for n in notes]
         return "\n".join(lines)
 
     # ------------------------------------------------------------------ run
@@ -105,6 +147,26 @@ class GallopSimulator:
             raise RuntimeError(f"Could not open video writer for {path} with codec '{cfg.VIDEO_CODEC}'")
         return writer
 
+    def advance_physics(self, t_start, dt_frame):
+        """Advance wind, blowout, and gallop dynamics over one frame; return the final reference wind."""
+        substeps = max(int(self.cfg.PHYSICS_SUBSTEPS), 1)
+        dt_sub = dt_frame / substeps
+        wind_ms = self.wind.current
+        for s in range(substeps):
+            wind_ms = self.wind.step(t_start + s * dt_sub, dt_sub)
+            for c in self.conductors:
+                c.dynamics.step(dt_sub, c.update_wind(wind_ms, dt_sub, self.cfg))
+        return wind_ms
+
+    def apply_ice_sheds(self, frame, t, alerts):
+        """Shed ice from conductors whose scheduled time has arrived and label the event."""
+        while self.pending_ice_sheds and self.pending_ice_sheds[0][0] <= t + 1e-9:
+            _, name = self.pending_ice_sheds.pop(0)
+            for c in self.conductors:
+                if c.name == name and c.iced:
+                    c.shed_ice()
+                    alerts.log(frame, t, name, "ice_shed", c.amplitude())
+
     def _ground_truth_row(self, frame, t, wind_ms, matrix, alerts, amplitudes):
         """Assemble the ground-truth CSV row for one frame (world displacement and shaken pixel positions)."""
         cfg = self.cfg
@@ -113,7 +175,11 @@ class GallopSimulator:
                "shake_rot_deg": rot, "max_amplitude_m": max(amplitudes.values()), "any_alert": any(alerts.values())}
         for c in self.conductors:
             row[f"{c.name}_amplitude_m"] = amplitudes[c.name]
+            row[f"{c.name}_pkpk_m"] = 2.0 * amplitudes[c.name]
             row[f"{c.name}_alert"] = alerts[c.name]
+            row[f"{c.name}_wind_ms"] = c.wind_ms
+            row[f"{c.name}_blowout_deg"] = math.degrees(c.blowout_rad)
+            row[f"{c.name}_iced"] = c.iced
             for n, q in zip(c.mode_numbers, c.dynamics.q):
                 row[f"{c.name}_q{n}_m"] = q
             points, dz, dy_disp = c.sample_points(cfg.GT_SAMPLE_FRACTIONS)
@@ -137,7 +203,6 @@ class GallopSimulator:
         names = [c.name for c in self.conductors]
         n_frames = int(round(cfg.DURATION_S * cfg.FPS))
         dt_frame = 1.0 / cfg.FPS
-        dt_sub = dt_frame / max(int(cfg.PHYSICS_SUBSTEPS), 1)
         sample_every = int(round(cfg.SAMPLE_FRAME_INTERVAL_S * cfg.FPS)) if cfg.SAMPLE_FRAME_INTERVAL_S > 0 else 0
 
         video = self._open_video(run_dir / "video.mp4") if cfg.SAVE_VIDEO else None
@@ -157,11 +222,8 @@ class GallopSimulator:
             for k in range(n_frames):
                 t = k * dt_frame
                 if k > 0:
-                    t_prev = (k - 1) * dt_frame
-                    for s in range(max(int(cfg.PHYSICS_SUBSTEPS), 1)):
-                        wind_ms = self.wind.step(t_prev + s * dt_sub, dt_sub)
-                        for c in self.conductors:
-                            c.dynamics.step(dt_sub, wind_ms)
+                    wind_ms = self.advance_physics((k - 1) * dt_frame, dt_frame)
+                self.apply_ice_sheds(k, t, alerts)
 
                 clean = self.renderer.render(t)
                 if clean_video is not None:
@@ -187,7 +249,7 @@ class GallopSimulator:
                     last_report = pct
                     elapsed = time.time() - started
                     print(f"  {pct:3d}%  t={t:6.1f}s  wind={wind_ms:5.1f} m/s  "
-                          f"max amp={max(amplitudes.values()):5.2f} m  ({elapsed:.0f}s elapsed)")
+                          f"max pk-pk={2 * max(amplitudes.values()):5.2f} m  ({elapsed:.0f}s elapsed)")
         finally:
             for writer in (video, clean_video):
                 if writer is not None:
@@ -200,7 +262,7 @@ class GallopSimulator:
         write_metadata(run_dir / "metadata.json", self._metadata(frames_written))
         if verbose:
             print(f"Done in {time.time() - started:.0f}s: {frames_written} frames, "
-                  f"{len(alerts.events)} alert events -> {run_dir}")
+                  f"{len(alerts.events)} events -> {run_dir}")
         return run_dir
 
     def _metadata(self, frames_written):
@@ -214,6 +276,7 @@ class GallopSimulator:
             "camera": {"K": cam.intrinsic_matrix(), "R": cam.R, "t": cam.t, "position_m": cam.position,
                        "target_m": cam.target, "hfov_deg": cam.hfov_deg, "width_px": cam.width,
                        "height_px": cam.height, "horizon_v_px": cam.horizon_v()},
-            "conductors": self.physics_summary(),
+            "conductors": self.initial_summary,
             "config": config_to_dict(self.cfg),
+            "reference": "EPRI, Transmission Line Reference Book: Wind-Induced Conductor Motion, 2nd ed. (2006)",
         }

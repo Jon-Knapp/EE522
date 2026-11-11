@@ -10,19 +10,26 @@ whose modal coordinates q_n(t) come from one of two models:
 
 * DenHartogModes - quasi-steady aerodynamics of an iced conductor. Each mode obeys
 
-      m q'' + c q' + m w^2 q = 0.5 * rho * D * (a1 * U * q' - 0.75 * a3 * q'^3 / U)
+      m q'' + c q' + m w^2 q = 0.5 * rho * D * (a1 * U * q' - a3 * P_n[v^3] / U)
 
-  where a1 = -(dCL/dalpha + CD). When a1 > 0 (the Den Hartog criterion) the
-  aerodynamic term acts as negative damping that grows with wind speed U; once it
-  exceeds the mechanical damping c the mode grows, and the cubic term saturates it
-  onto a limit cycle. Gallop therefore starts, grows, and decays naturally as the
-  wind changes, which is what an alerting system must handle.
+  where a1 = -(dCL/dalpha + CD). When a1 > 0 (the Den Hartog criterion, Orange Book
+  Eq. 4.3-1) the aerodynamic term acts as negative damping that grows with wind speed
+  U; once it exceeds the mechanical damping c the mode grows, and the cubic term
+  saturates it onto a limit cycle. P_n[v^3] is the projection of the cubed *physical*
+  velocity v(x) onto mode n. For a single mode it equals 0.75 q'^3 (the classic
+  harmonic-balance case); with several modes it couples them, so the first mode to
+  reach its limit cycle starves the others of energy - the "lock-out" the Orange Book
+  describes (Sec. 4.3.5, after Myerscough 1975). Set MODE_COUPLING = False for the
+  old independent-mode behaviour.
 * KinematicModes - prescribed sinusoids with a scripted amplitude envelope, for
   controlled tests where gallop must reach an exact amplitude at an exact time.
 
 Transverse sway is derived from the vertical motion with a fixed ratio and phase
-lead, giving the elliptical orbits seen on galloping lines. scene.py converts
-these displacements to 3D wire positions; simulator.py advances the dynamics.
+lead, giving the narrow tilted ellipses filmed on real lines (Orange Book Sec. 4.5.4;
+see reference.sway_from_orbit). An optional upward bias moves the centre of the
+orbit above the static position, because filmed gallop goes up about three times as
+far as it goes down. scene.py converts these displacements to 3D wire positions;
+simulator.py advances the dynamics.
 """
 
 import math
@@ -31,13 +38,14 @@ import numpy as np
 
 MIN_EFFECTIVE_WIND_MS = 0.5   # Keeps the cubic term (which divides by U) finite in calm air
 HARMONIC_BALANCE_FACTOR = 9.0 / 16.0  # (3/4 modal projection of q'^3) x (3/4 fundamental of sin^3)
+COUPLING_QUADRATURE_POINTS = 64       # Midpoint-rule points for projecting v(x)^3 onto the modes
 
 
 def catenary_sag(x, span_m, tension_n, mass_per_m, gravity=9.81):
     """Return the sag (m, positive downward) below the chord at positions x for a level span.
 
     Uses the exact catenary for horizontal tension `tension_n` and weight `mass_per_m * gravity`
-    per metre; sag is zero at both towers and largest at midspan.
+    per metre; sag is zero at both towers and largest at midspan (Orange Book Appendix 3).
     """
     a = tension_n / (mass_per_m * gravity)
     x = np.asarray(x, dtype=float)
@@ -45,10 +53,11 @@ def catenary_sag(x, span_m, tension_n, mass_per_m, gravity=9.81):
 
 
 def modal_frequencies_hz(mode_numbers, span_m, tension_n, mass_per_m):
-    """Return taut-string natural frequencies f_n = (n / 2L) * sqrt(T / mu) in hertz.
+    """Return taut-string natural frequencies f_n = (n / 2L) * sqrt(T / mu) in hertz (Orange Book Eq. 2.5-11).
 
     Sag and bending stiffness are neglected, a reasonable first approximation for the
-    low-order modes involved in gallop.
+    low-order modes involved in gallop. (In deadended spans the true one-loop mode is a
+    "pseudo-one-loop" whose frequency can exceed the two-loop mode; Orange Book Sec. 4.3.2.)
     """
     wave_speed = math.sqrt(tension_n / mass_per_m)
     return np.asarray(mode_numbers, dtype=float) * wave_speed / (2.0 * span_m)
@@ -61,6 +70,16 @@ def mode_shapes(x, span_m, mode_numbers):
     """
     n = np.asarray(mode_numbers, dtype=float)[:, None]
     return np.sin(n * np.pi * np.atleast_1d(np.asarray(x, dtype=float))[None, :] / span_m)
+
+
+def modal_projection(profile, span_m, mode_numbers, points=256):
+    """Return the sine-series coefficients of a displacement profile p(x) on the given modes.
+
+    `profile` is a callable of x (metres). Used to turn a change in static sag (ice shedding)
+    into modal initial conditions: b_n = (2/L) * integral p(x) sin(n pi x / L) dx.
+    """
+    x = (np.arange(points) + 0.5) * span_m / points
+    return (2.0 / points) * mode_shapes(x, span_m, mode_numbers) @ np.asarray(profile(x), dtype=float)
 
 
 def damping_coefficient(damping_ratio, omega, mass_per_m):
@@ -99,18 +118,18 @@ def cubic_coefficient_for_target(target_amplitude_m, omega, mass_per_m, damping_
     if net <= 0:
         u_crit = c / (0.5 * air_density * aero_diameter_m * a1) if a1 > 0 else float("inf")
         raise ValueError(
-            f"REFERENCE_WIND_MS ({reference_wind_ms} m/s) is below the critical wind speed "
-            f"({u_crit:.1f} m/s) of the reference mode; raise REFERENCE_WIND_MS or DEN_HARTOG_A1, "
+            f"The reference wind at the conductor ({reference_wind_ms:.1f} m/s) is below the critical wind "
+            f"speed ({u_crit:.1f} m/s) of the reference mode; raise REFERENCE_WIND_MS or DEN_HARTOG_A1, "
             f"or lower DAMPING_RATIO")
     return net * reference_wind_ms / (
         0.5 * air_density * aero_diameter_m * HARMONIC_BALANCE_FACTOR * (target_amplitude_m * omega) ** 2)
 
 
 def predicted_amplitude(omega, mass_per_m, damping_ratio, air_density, aero_diameter_m, a1, a3, wind_ms):
-    """Return the harmonic-balance limit-cycle amplitude (m) of each mode at a steady wind speed.
+    """Return the harmonic-balance limit-cycle amplitude (m, semi-amplitude) of each mode at a steady wind.
 
-    Modes below their critical wind speed return 0. Handy for sanity-checking config values
-    before rendering a long video.
+    Each mode is treated as if it galloped alone; with MODE_COUPLING on, only the winning mode
+    actually reaches this amplitude. Modes below their critical wind speed return 0.
     """
     omega = np.atleast_1d(np.asarray(omega, dtype=float))
     a1 = np.broadcast_to(np.asarray(a1, dtype=float), omega.shape)
@@ -127,21 +146,42 @@ class DenHartogModes:
     """Modal state of one conductor driven by quasi-steady Den Hartog aerodynamics (see module docstring)."""
 
     def __init__(self, omegas, mass_per_m, damping_ratio, air_density, aero_diameter_m,
-                 a1, a3, initial_q, initial_v):
-        """Store per-mode parameters and the initial modal displacement and velocity."""
+                 a1, a3, initial_q, initial_v, mode_numbers=None):
+        """Store per-mode parameters and the initial modal displacement and velocity.
+
+        Passing `mode_numbers` enables cross-mode coupling of the cubic term; leaving it None
+        keeps every mode independent (0.75 * q'^3 per mode).
+        """
+        self.damping_ratio = float(damping_ratio)
+        self.air_density = float(air_density)
+        self.a3 = float(a3)
+        self.q = np.array(initial_q, dtype=float)
+        self.v = np.array(initial_v, dtype=float)
+        self._shapes = None
+        if mode_numbers is not None:
+            x = (np.arange(COUPLING_QUADRATURE_POINTS) + 0.5) / COUPLING_QUADRATURE_POINTS
+            self._shapes = mode_shapes(x, 1.0, mode_numbers)
+        self.set_section(omegas, mass_per_m, aero_diameter_m, a1)
+
+    def set_section(self, omegas, mass_per_m, aero_diameter_m, a1):
+        """Update the frequencies, mass, aerodynamic diameter and a1 (e.g. after ice sheds), keeping the state."""
         self.omegas = np.asarray(omegas, dtype=float)
         self.mass = float(mass_per_m)
         self.a1 = np.asarray(a1, dtype=float)
-        self.a3 = float(a3)
-        self._c = damping_coefficient(damping_ratio, self.omegas, self.mass)
-        self._k_aero = 0.5 * air_density * aero_diameter_m
-        self.q = np.array(initial_q, dtype=float)
-        self.v = np.array(initial_v, dtype=float)
+        self._c = damping_coefficient(self.damping_ratio, self.omegas, self.mass)
+        self._k_aero = 0.5 * self.air_density * aero_diameter_m
+
+    def cubic_projection(self, v):
+        """Return the modal projection of the cubed physical velocity, P_n[(sum_m v_m phi_m)^3]."""
+        if self._shapes is None:
+            return 0.75 * v ** 3
+        field = v @ self._shapes
+        return (2.0 / self._shapes.shape[1]) * (self._shapes @ field ** 3)
 
     def _acceleration(self, q, v, wind_ms):
         """Return modal accelerations q'' for state (q, v) at the given wind speed."""
         u = max(wind_ms, MIN_EFFECTIVE_WIND_MS)
-        aero = self._k_aero * (self.a1 * u * v - 0.75 * self.a3 * v ** 3 / u)
+        aero = self._k_aero * (self.a1 * u * v - self.a3 * self.cubic_projection(v) / u)
         return (aero - self._c * v) / self.mass - self.omegas ** 2 * q
 
     def step(self, dt, wind_ms):
@@ -197,22 +237,28 @@ class KinematicModes:
         return np.abs(self.amplitudes * self.scale(self.time))
 
 
-def displacement_field(shapes, q, v, omegas, sway_ratio, sway_phase_rad):
+def displacement_field(shapes, q, v, omegas, sway_ratio, sway_phase_rad, upward_bias=0.0, envelopes=None):
     """Return vertical (dz) and transverse (dy) displacement at the x positions represented by `shapes`.
 
     Vertical motion is the modal sum; transverse sway reuses each mode's motion scaled by
-    `sway_ratio` and phase-shifted by `sway_phase_rad`, which traces elliptical orbits.
+    `sway_ratio` and phase-shifted by `sway_phase_rad`, which traces elliptical orbits. With
+    `upward_bias` b > 0 the orbit centre is lifted by b * sum_n |envelope_n * phi_n(x)|, so the
+    conductor rises (1 + b) A and falls (1 - b) A about its static position (b = 0.5 puts the static
+    position at the lower quartile of the motion, as filmed; Orange Book Sec. 4.5.4).
     """
     dz = q @ shapes
+    if upward_bias and envelopes is not None:
+        dz = dz + upward_bias * (np.asarray(envelopes) @ np.abs(shapes))
     q_sway = sway_ratio * (math.cos(sway_phase_rad) * q + math.sin(sway_phase_rad) * v / omegas)
     dy = q_sway @ shapes
     return dz, dy
 
 
 def amplitude_envelope(envelopes, shapes):
-    """Return the largest vertical displacement envelope (m) anywhere along the span.
+    """Return the largest vertical displacement envelope (m, semi-amplitude) anywhere along the span.
 
     Weights each mode's envelope by |mode shape| and takes the maximum over x: exact for one
-    active mode and a conservative upper bound when several modes are active.
+    active mode and a conservative upper bound when several modes are active. Peak-to-peak
+    amplitude, the quantity the Orange Book reports, is twice this value.
     """
     return float(np.max(np.abs(shapes).T @ envelopes))

@@ -5,13 +5,16 @@ The point of simulating gallop is having exact answers to grade a CV pipeline
 against. This module writes:
 
 * ground_truth.csv  - one row per frame: wind speed, camera shake, and for every
-                      conductor its amplitude envelope, alert state, modal
-                      coordinates, and the world displacement and pixel position
-                      of points at fixed fractions along the span;
-* alert_events.csv  - the times each conductor's alert was raised and cleared,
-                      for measuring detection latency and false alarms;
+                      conductor its amplitude envelope (semi- and peak-to-peak),
+                      alert state, wind at the conductor, blowout angle, ice state,
+                      modal coordinates, and the world displacement and pixel
+                      position of points at fixed fractions along the span;
+* alert_events.csv  - the times each conductor's alert was raised and cleared
+                      (plus any ice-shedding events), for measuring detection
+                      latency and false alarms;
 * metadata.json     - the full config, camera calibration (K, R, t), and the
-                      per-conductor physics (frequencies, sag, critical winds).
+                      per-conductor physics (frequencies, sag, critical winds,
+                      Orange Book plausibility notes).
 
 AlertTracker applies the same raise/clear hysteresis an operational system would,
 so the labels define what "correct" alerting looks like.
@@ -43,13 +46,16 @@ class AlertTracker:
         for name, amplitude in amplitudes.items():
             if not self.active[name] and amplitude >= self.raise_m:
                 self.active[name] = True
-                self.events.append({"frame": frame, "time_s": round(time_s, 4), "conductor": name,
-                                    "event": "raise", "amplitude_m": round(amplitude, 4)})
+                self.log(frame, time_s, name, "raise", amplitude)
             elif self.active[name] and amplitude < self.clear_m:
                 self.active[name] = False
-                self.events.append({"frame": frame, "time_s": round(time_s, 4), "conductor": name,
-                                    "event": "clear", "amplitude_m": round(amplitude, 4)})
+                self.log(frame, time_s, name, "clear", amplitude)
         return dict(self.active)
+
+    def log(self, frame, time_s, name, event, amplitude):
+        """Append an event row (alert transitions, or other labelled events such as ice shedding)."""
+        self.events.append({"frame": frame, "time_s": round(time_s, 4), "conductor": name,
+                            "event": event, "amplitude_m": round(amplitude, 4)})
 
 
 class GroundTruthWriter:
@@ -60,7 +66,8 @@ class GroundTruthWriter:
         self.columns = ["frame", "time_s", "wind_ms", "shake_dx_px", "shake_dy_px", "shake_rot_deg",
                         "max_amplitude_m", "any_alert"]
         for name in conductor_names:
-            self.columns += [f"{name}_amplitude_m", f"{name}_alert"]
+            self.columns += [f"{name}_amplitude_m", f"{name}_pkpk_m", f"{name}_alert", f"{name}_wind_ms",
+                             f"{name}_blowout_deg", f"{name}_iced"]
             self.columns += [f"{name}_q{n}_m" for n in mode_numbers]
             for fraction in sample_fractions:
                 tag = fraction_label(fraction)
@@ -88,11 +95,11 @@ class GroundTruthWriter:
 
 
 def write_events_csv(path, events):
-    """Write the alert raise/clear events to a CSV (header only if there were none)."""
+    """Write the alert raise/clear (and ice-shed) events to a CSV (header only if there were none)."""
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=["frame", "time_s", "conductor", "event", "amplitude_m"])
         writer.writeheader()
-        writer.writerows(events)
+        writer.writerows(sorted(events, key=lambda e: (e["frame"], e["conductor"])))
 
 
 def _json_default(value):
