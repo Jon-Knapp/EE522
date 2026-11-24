@@ -1,0 +1,7 @@
+frame,time_s,conductor,event,amplitude_m
+1772,59.0667,phase_A,raise,0.7511
+1792,59.7333,shield,raise,0.7505
+2046,68.2,phase_B,raise,0.7509
+2989,99.6333,shield,clear,0.4991
+3092,103.0667,phase_B,clear,0.4965
+3121,104.0333,phase_A,clear,0.4972

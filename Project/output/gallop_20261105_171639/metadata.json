@@ -1,0 +1,424 @@
+{
+  "generated_at": "2026-11-05T17:20:33",
+  "gallop_sim_version": "0.1.0",
+  "versions": {
+    "python": "3.13.7",
+    "numpy": "2.5.4",
+    "opencv": "5.0.0"
+  },
+  "frames_written": 3600,
+  "camera": {
+    "K": [
+      [
+        1004.5987693551938,
+        0.0,
+        640.0
+      ],
+      [
+        0.0,
+        1004.5987693551938,
+        360.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "R": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        -0.0,
+        0.07597029192821864,
+        -0.9971100815578695
+      ],
+      [
+        0.0,
+        0.9971100815578695,
+        0.07597029192821864
+      ]
+    ],
+    "t": [
+      -125.0,
+      23.930641957388872,
+      208.78535479172686
+    ],
+    "position_m": [
+      125.0,
+      -210.0,
+      8.0
+    ],
+    "target_m": [
+      125.0,
+      0.0,
+      24.0
+    ],
+    "hfov_deg": 65.0,
+    "width_px": 1280,
+    "height_px": 720,
+    "horizon_v_px": 436.54085861753856
+  },
+  "conductors": [
+    {
+      "name": "shield",
+      "sag_m": 3.0661860132322047,
+      "frequencies_hz": [
+        0.31622776601683794,
+        0.6324555320336759,
+        0.948683298050514
+      ],
+      "mode_numbers": [
+        1,
+        2,
+        3
+      ],
+      "aero_diameter_m": 0.032,
+      "tension_n": 15000.0,
+      "mass_per_m": 0.6,
+      "a1": [
+        0.36,
+        1.2,
+        0.72
+      ],
+      "a3": 15.357886198992459,
+      "midspan_depth_m": 211.36331654653947,
+      "metres_per_pixel_midspan": 0.210395754996001,
+      "critical_wind_ms": [
+        13.246117687728136,
+        7.947670612636881,
+        19.86917653159221
+      ],
+      "predicted_amplitude_ref_wind_m": [
+        0.5269752878279665,
+        0.9646409555472842,
+        0.0
+      ],
+      "predicted_amplitude_peak_wind_m": [
+        0.6819885380910283,
+        1.0645707520848064,
+        0.0
+      ]
+    },
+    {
+      "name": "phase_A",
+      "sag_m": 3.942755346290461,
+      "frequencies_hz": [
+        0.27888667551135854,
+        0.5577733510227171,
+        0.8366600265340756
+      ],
+      "mode_numbers": [
+        1,
+        2,
+        3
+      ],
+      "aero_diameter_m": 0.05,
+      "tension_n": 35000.0,
+      "mass_per_m": 1.8,
+      "a1": [
+        0.6,
+        2.0,
+        1.2
+      ],
+      "a3": 13.365551348766045,
+      "midspan_depth_m": 215.7504816827035,
+      "metres_per_pixel_midspan": 0.2147628369295972,
+      "critical_wind_ms": [
+        13.457638363707874,
+        8.074583018224724,
+        20.186457545561804
+      ],
+      "predicted_amplitude_ref_wind_m": [
+        0.7754468309583465,
+        1.5,
+        0.0
+      ],
+      "predicted_amplitude_peak_wind_m": [
+        1.0282339598251016,
+        1.657271712781962,
+        0.0
+      ]
+    },
+    {
+      "name": "phase_B",
+      "sag_m": 3.942755346290461,
+      "frequencies_hz": [
+        0.27888667551135854,
+        0.5577733510227171,
+        0.8366600265340756
+      ],
+      "mode_numbers": [
+        1,
+        2,
+        3
+      ],
+      "aero_diameter_m": 0.05,
+      "tension_n": 35000.0,
+      "mass_per_m": 1.8,
+      "a1": [
+        0.54,
+        1.8,
+        1.08
+      ],
+      "a3": 13.365551348766045,
+      "midspan_depth_m": 215.79321497191316,
+      "metres_per_pixel_midspan": 0.2148053745978815,
+      "critical_wind_ms": [
+        14.952931515230969,
+        8.97175890913858,
+        22.429397272846447
+      ],
+      "predicted_amplitude_ref_wind_m": [
+        0.12851247328506618,
+        1.3276538417281132,
+        0.0
+      ],
+      "predicted_amplitude_peak_wind_m": [
+        0.6260111648861169,
+        1.4805641769297422,
+        0.0
+      ]
+    },
+    {
+      "name": "phase_C",
+      "sag_m": 3.9427553462904594,
+      "frequencies_hz": [
+        0.27888667551135854,
+        0.5577733510227171,
+        0.8366600265340756
+      ],
+      "mode_numbers": [
+        1,
+        2,
+        3
+      ],
+      "aero_diameter_m": 0.05,
+      "tension_n": 35000.0,
+      "mass_per_m": 1.8,
+      "a1": [
+        0.48,
+        1.6,
+        0.96
+      ],
+      "a3": 13.365551348766045,
+      "midspan_depth_m": 214.8388381795649,
+      "metres_per_pixel_midspan": 0.213855366672866,
+      "critical_wind_ms": [
+        16.82204795463484,
+        10.093228772780904,
+        25.233071931952257
+      ],
+      "predicted_amplitude_ref_wind_m": [
+        0.0,
+        1.129304851185381,
+        0.0
+      ],
+      "predicted_amplitude_peak_wind_m": [
+        0.0,
+        1.2796839586507411,
+        0.0
+      ]
+    }
+  ],
+  "config": {
+    "AIR_DENSITY_KGM3": 1.25,
+    "ALERT_CLEAR_M": 0.5,
+    "ALERT_THRESHOLD_M": 0.75,
+    "BACKGROUND_IMAGE": null,
+    "BLUR_SIGMA_PX": 0.0,
+    "CAMERA_HFOV_DEG": 65.0,
+    "CAMERA_POSITION_M": [
+      125.0,
+      -210.0,
+      8.0
+    ],
+    "CAMERA_TARGET_M": [
+      125.0,
+      0.0,
+      24.0
+    ],
+    "CLOUD_COVER": 0.5,
+    "CLOUD_DRIFT_PX_PER_S": 4.0,
+    "CONDUCTORS": [
+      {
+        "name": "shield",
+        "attach_y_m": 0.0,
+        "attach_z_m": 37.0,
+        "insulator_m": 0.0,
+        "tension_n": 15000.0,
+        "mass_per_m": 0.6,
+        "diameter_m": 0.012,
+        "aero_scale": 0.6
+      },
+      {
+        "name": "phase_A",
+        "attach_y_m": 5.0,
+        "attach_z_m": 30.0,
+        "insulator_m": 2.5,
+        "aero_scale": 1.0
+      },
+      {
+        "name": "phase_B",
+        "attach_y_m": 5.5,
+        "attach_z_m": 24.0,
+        "insulator_m": 2.5,
+        "aero_scale": 0.9
+      },
+      {
+        "name": "phase_C",
+        "attach_y_m": 5.0,
+        "attach_z_m": 18.0,
+        "insulator_m": 2.5,
+        "aero_scale": 0.8
+      }
+    ],
+    "CONDUCTOR_DIAMETER_M": 0.03,
+    "CONDUCTOR_MASS_PER_M": 1.8,
+    "CONDUCTOR_POINTS": 240,
+    "CONDUCTOR_TENSION_N": 35000.0,
+    "CROSSARM_DEPTH_M": 1.5,
+    "DAMPING_RATIO": 0.04,
+    "DEN_HARTOG_A1": 2.0,
+    "DURATION_S": 120.0,
+    "FOG_COLOR_BGR": [
+      205,
+      205,
+      205
+    ],
+    "FOG_DENSITY": 0.12,
+    "FPS": 30.0,
+    "GRAVITY_MS2": 9.81,
+    "GROUND_COLOR_BGR": [
+      205,
+      208,
+      205
+    ],
+    "GT_SAMPLE_FRACTIONS": [
+      0.25,
+      0.5,
+      0.75
+    ],
+    "ICE_THICKNESS_M": 0.01,
+    "ILLUMINATION_FLICKER_STD": 0.01,
+    "ILLUMINATION_GAIN": 1.0,
+    "IMAGE_HEIGHT_PX": 720,
+    "IMAGE_WIDTH_PX": 1280,
+    "INITIAL_PERTURBATION_M": 0.05,
+    "KINEMATIC_AMPLITUDES_M": [
+      0.2,
+      1.5,
+      0.3
+    ],
+    "KINEMATIC_ENVELOPE": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        20.0,
+        0.0
+      ],
+      [
+        50.0,
+        1.0
+      ],
+      [
+        90.0,
+        1.0
+      ],
+      [
+        110.0,
+        0.0
+      ]
+    ],
+    "MIN_WIRE_ALPHA": 0.35,
+    "MODE_AERO_WEIGHTS": [
+      0.3,
+      1.0,
+      0.6
+    ],
+    "MODE_NUMBERS": [
+      1,
+      2,
+      3
+    ],
+    "MOTION_MODEL": "den_hartog",
+    "OUTPUT_DIR": "output",
+    "PHYSICS_SUBSTEPS": 20,
+    "PRECIP_DRIFT_PX_PER_MS": 12.0,
+    "PRECIP_PARTICLES": 350,
+    "PREVIEW": false,
+    "RANDOM_SEED": 42,
+    "REFERENCE_WIND_MS": 15.0,
+    "RUN_NAME": null,
+    "SAMPLE_FRAME_INTERVAL_S": 10.0,
+    "SAVE_CLEAN_VIDEO": true,
+    "SAVE_VIDEO": true,
+    "SENSOR_NOISE_STD": 0.0,
+    "SHAKE_ENABLED": false,
+    "SHAKE_ROT_STD_DEG": 0.05,
+    "SHAKE_SCALES_WITH_WIND": true,
+    "SHAKE_STD_PX": 1.5,
+    "SHAKE_TIMESCALE_S": 0.5,
+    "SKY_STYLE": "overcast",
+    "SPAN_LENGTH_M": 250.0,
+    "SWAY_PHASE_DEG": 60.0,
+    "SWAY_RATIO": 0.3,
+    "TARGET_AMPLITUDE_M": 1.5,
+    "TOWER_BASE_HALF_WIDTH_M": 4.0,
+    "TOWER_BRACE_SPACING_M": 4.0,
+    "TOWER_COLOR_BGR": [
+      70,
+      70,
+      75
+    ],
+    "TOWER_MEMBER_WIDTH_M": 0.15,
+    "TOWER_PEAK_ABOVE_M": 1.0,
+    "TOWER_TOP_HALF_WIDTH_M": 1.0,
+    "TREELINE_COLOR_BGR": [
+      60,
+      72,
+      58
+    ],
+    "TREELINE_HEIGHT_PX": 14,
+    "VIDEO_CODEC": "mp4v",
+    "WEATHER": "none",
+    "WIND_GUST_STD_MS": 1.5,
+    "WIND_GUST_TIMESCALE_S": 5.0,
+    "WIND_SCHEDULE": [
+      [
+        0.0,
+        4.0
+      ],
+      [
+        15.0,
+        4.0
+      ],
+      [
+        40.0,
+        16.0
+      ],
+      [
+        85.0,
+        16.0
+      ],
+      [
+        100.0,
+        5.0
+      ],
+      [
+        120.0,
+        5.0
+      ]
+    ],
+    "WIRE_COLOR_BGR": [
+      55,
+      55,
+      60
+    ]
+  }
+}
